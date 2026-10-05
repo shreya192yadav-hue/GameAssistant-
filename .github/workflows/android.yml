@@ -1,0 +1,118 @@
+name: Game Assistant Android Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Repository download
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Java 17
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 3. Flutter
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # 4. Extract the uploaded project ZIP
+      - name: Extract Flutter project
+        shell: bash
+        run: |
+          set -e
+
+          echo "Extracting project ZIP..."
+
+          unzip -q game_assistant_flutter_project.zip -d extracted
+
+          echo "Searching for Flutter project..."
+
+          PROJECT_ROOT=$(find extracted -name pubspec.yaml -type f -print -quit | xargs dirname)
+
+          if [ -z "$PROJECT_ROOT" ]; then
+            echo "ERROR: pubspec.yaml not found inside ZIP."
+            exit 1
+          fi
+
+          echo "Flutter project found at: $PROJECT_ROOT"
+
+          rsync -a "$PROJECT_ROOT/" ./ \
+            --exclude ".git/" \
+            --exclude ".github/"
+
+      # 5. Verify project
+      - name: Verify Flutter project
+        shell: bash
+        run: |
+          set -e
+
+          test -f pubspec.yaml
+          test -f lib/main.dart
+
+          echo "Flutter project detected successfully."
+
+      # 6. Generate Android platform if required
+      - name: Prepare Android platform
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -d android ]; then
+            echo "Android folder missing. Creating Android platform..."
+            flutter create . --platforms=android
+          fi
+
+          if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Gradle wrapper JAR missing. Regenerating Flutter Android files..."
+            flutter create . --platforms=android
+          fi
+
+      # 7. Install dependencies
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      # 8. Analyze code
+      - name: Flutter Analyze
+        run: flutter analyze
+
+      # 9. Build release APK
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      # 10. Upload APK
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game-Assistant-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      # 11. Build result
+      - name: Build Complete
+        run: |
+          echo "======================================"
+          echo " GAME ASSISTANT APK BUILD COMPLETE "
+          echo "======================================"
+          echo "APK: build/app/outputs/flutter-apk/app-release.apk"
