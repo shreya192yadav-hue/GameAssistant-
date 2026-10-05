@@ -4,11 +4,6 @@ on:
   push:
     branches:
       - main
-
-  pull_request:
-    branches:
-      - main
-
   workflow_dispatch:
 
 permissions:
@@ -20,73 +15,70 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # --------------------------------------------------
-      # 1. Download repository
-      # --------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # --------------------------------------------------
-      # 2. Setup Java
-      # --------------------------------------------------
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-
-      # --------------------------------------------------
-      # 3. Setup Flutter
-      # --------------------------------------------------
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-
-      # --------------------------------------------------
-      # 4. Check uploaded ZIP
-      # --------------------------------------------------
-      - name: Check project ZIP
-        shell: bash
+      - name: Extract project ZIP
         run: |
-          set -e
+          unzip -o game_assistant_flutter_project.zip -d project
 
-          if [ ! -f "game_assistant_flutter_project.zip" ]; then
-            echo "ERROR: game_assistant_flutter_project.zip not found."
-            echo "Files in repository:"
-            ls -la
-            exit 1
+          PROJECT_DIR=$(find project -name pubspec.yaml -type f | head -1 | xargs dirname)
+
+          echo "Project directory: $PROJECT_DIR"
+
+          cp -r "$PROJECT_DIR"/. .
+
+          rm -rf project
+
+      - name: Remove default Flutter test
+        run: |
+          rm -f test/widget_test.dart
+
+      - name: Fix direction service
+        run: |
+          FILE="lib/services/direction_service.dart"
+
+          if [ -f "$FILE" ]; then
+            sed -i 's/e\.x\.atan2(e\.y)/atan2(e.x, e.y)/g' "$FILE"
+
+            grep -q "import 'dart:math';" "$FILE" || \
+              sed -i "1i import 'dart:math';" "$FILE"
           fi
 
-          echo "Project ZIP found successfully."
-
-
-      # --------------------------------------------------
-      # 5. Extract Flutter project
-      # --------------------------------------------------
-      - name: Extract Flutter project
-        shell: bash
+      - name: Prepare Android
         run: |
-          set -e
+          if [ ! -d android ]; then
+            flutter create . --platforms=android --no-pub
+          fi
 
-          rm -rf extracted
-          mkdir -p extracted
+          if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
+            flutter create . --platforms=android --no-pub
+          fi
 
-          unzip -q game_assistant_flutter_project.zip -d extracted
+      - name: Flutter Pub Get
+        run: flutter pub get
 
-          echo "Searching for pubspec.yaml..."
+      - name: Flutter Analyze
+        run: flutter analyze
 
-          PROJECT_ROOT=$(find extracted \
-            -type f \
-            -name "pubspec.yaml" \
-            -print \
-            -quit)
+      - name: Build APK
+        run: flutter build apk --release
 
-          if [ -z "$PROJECT_ROOT" ]; then
-            echo "ERROR: pubspec.yaml was not found inside ZIP."
-            find extracted -maxdepth
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game-Assistant-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
