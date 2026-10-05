@@ -219,4 +219,37 @@ EOF
         run: flutter analyze lib
 
 
-      # 13. Build release
+      # 13. Build release APK
+      - name: Build APK
+        run: flutter build apk --release
+
+
+      # 14. Verify APK
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -e
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK was not created."
+            exit 1
+          fi
+
+          echo ""
+          echo "======================================"
+          echo "      APK BUILD SUCCESSFUL"
+          echo "======================================"
+          echo ""
+
+          ls -lh "$APK"
+
+
+      # 15. Upload APK
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Game-Assistant-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
