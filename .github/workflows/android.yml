@@ -11,85 +11,212 @@ permissions:
 
 jobs:
   build:
+    name: Build Game Assistant APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+
+      # 1. GitHub repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+
+      # 2. Java 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+
+      # 3. Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Extract Flutter project
+
+      # 4. Extract our Game Assistant ZIP
+      - name: Extract Game Assistant project
         shell: bash
         run: |
           set -e
-          rm -rf project
-          mkdir project
 
-          unzip -q game_assistant_flutter_project.zip -d project
+          echo "Checking project ZIP..."
 
-          PROJECT_DIR=$(find project -name pubspec.yaml -type f | head -1 | xargs dirname)
+          test -f game_assistant_flutter_project.zip
+
+          rm -rf extracted_project
+          mkdir -p extracted_project
+
+          unzip -q game_assistant_flutter_project.zip \
+            -d extracted_project
+
+          echo "Finding pubspec.yaml..."
+
+          PROJECT_DIR=$(find extracted_project \
+            -type f \
+            -name pubspec.yaml \
+            -print -quit | xargs dirname)
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "Flutter project not found."
+            echo "ERROR: Flutter project not found."
             exit 1
           fi
 
-          cp -r "$PROJECT_DIR"/. .
-          rm -rf project
+          echo "Flutter project:"
+          echo "$PROJECT_DIR"
 
-          echo "Flutter project extracted."
+          cp -R "$PROJECT_DIR"/. .
 
-      - name: Prepare Android
+          rm -rf extracted_project
+
+
+      # 5. Check project
+      - name: Verify project
+        shell: bash
         run: |
-          if [ ! -d android ]; then
-            flutter create . --platforms=android --no-pub
-          fi
+          set -e
 
-          if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
-            flutter create . --platforms=android --no-pub
-          fi
+          test -f pubspec.yaml
+          test -f lib/main.dart
 
+          echo "Flutter project detected successfully."
+
+
+      # 6. Fix direction service
       - name: Fix direction service
         shell: bash
         run: |
+          set -e
+
           FILE="lib/services/direction_service.dart"
 
           if [ -f "$FILE" ]; then
-            sed -i 's/e\.x\.atan2(e\.y)/atan2(e.x, e.y)/g' "$FILE"
+
+            sed -i \
+              's/e\.x\.atan2(e\.y)/atan2(e.x, e.y)/g' \
+              "$FILE"
 
             if ! grep -q "import 'dart:math';" "$FILE"; then
               sed -i "1i import 'dart:math';" "$FILE"
             fi
+
           fi
 
+          echo "Direction service checked."
+
+
+      # 7. Prepare Android if missing
+      - name: Prepare Android project
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -d android ]; then
+            echo "Android folder missing."
+            flutter create . --platforms=android --no-pub
+          else
+            echo "Android folder already exists."
+          fi
+
+
+      # 8. Generate correct Flutter Gradle files
+      #    without overwriting our custom Android app
+      - name: Prepare Flutter Gradle wrapper
+        shell: bash
+        run: |
+          set -e
+
+          TEMP_DIR="$RUNNER_TEMP/flutter_android_template"
+
+          rm -rf "$TEMP_DIR"
+
+          mkdir -p "$TEMP_DIR"
+
+          cd "$TEMP_DIR"
+
+          flutter create . \
+            --platforms=android \
+            --no-pub
+
+          cd "$GITHUB_WORKSPACE"
+
+          echo "Copying Gradle wrapper..."
+
+          mkdir -p android/gradle/wrapper
+
+          cp "$TEMP_DIR/android/gradlew" \
+             android/gradlew
+
+          cp "$TEMP_DIR/android/gradlew.bat" \
+             android/gradlew.bat
+
+          cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.jar" \
+             android/gradle/wrapper/gradle-wrapper.jar
+
+          cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.properties" \
+             android/gradle/wrapper/gradle-wrapper.properties
+
+          chmod +x android/gradlew
+
+          echo "Gradle wrapper ready."
+
+
+      # 9. Fix Flutter settings.gradle
+      - name: Fix Flutter Gradle settings
+        shell: bash
+        run: |
+          set -e
+
+          FLUTTER_SDK_PATH="$(flutter sdk-path)"
+
+          echo "Flutter SDK:"
+          echo "$FLUTTER_SDK_PATH"
+
+          cat > android/settings.gradle <<EOF
+pluginManagement {
+    includeBuild("${FLUTTER_SDK_PATH}/packages/flutter_tools/gradle")
+
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+    id "com.android.application" version "8.7.3" apply false
+    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
+}
+
+include ":app"
+EOF
+
+          echo "settings.gradle fixed."
+
+
+      # 10. Remove Flutter default test
+      - name: Remove default test
+        shell: bash
+        run: |
+          set -e
+
+          rm -f test/widget_test.dart
+
+          echo "Default widget test removed."
+
+
+      # 11. Flutter dependencies
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Analyze application code
+
+      # 12. Analyze only our application code
+      - name: Analyze application
         run: flutter analyze lib
 
-      - name: Build APK
-        run: flutter build apk --release
 
-      - name: Verify APK
-        run: |
-          test -f build/app/outputs/flutter-apk/app-release.apk
-          ls -lh build/app/outputs/flutter-apk/app-release.apk
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Game-Assistant-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
+      # 13. Build release
