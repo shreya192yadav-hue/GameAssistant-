@@ -11,14 +11,13 @@ permissions:
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,32 +29,26 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Extract project ZIP
+      - name: Extract Flutter project
+        shell: bash
         run: |
-          unzip -o game_assistant_flutter_project.zip -d project
+          set -e
+          rm -rf project
+          mkdir project
+
+          unzip -q game_assistant_flutter_project.zip -d project
 
           PROJECT_DIR=$(find project -name pubspec.yaml -type f | head -1 | xargs dirname)
 
-          echo "Project directory: $PROJECT_DIR"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Flutter project not found."
+            exit 1
+          fi
 
           cp -r "$PROJECT_DIR"/. .
-
           rm -rf project
 
-      - name: Remove default Flutter test
-        run: |
-          rm -f test/widget_test.dart
-
-      - name: Fix direction service
-        run: |
-          FILE="lib/services/direction_service.dart"
-
-          if [ -f "$FILE" ]; then
-            sed -i 's/e\.x\.atan2(e\.y)/atan2(e.x, e.y)/g' "$FILE"
-
-            grep -q "import 'dart:math';" "$FILE" || \
-              sed -i "1i import 'dart:math';" "$FILE"
-          fi
+          echo "Flutter project extracted."
 
       - name: Prepare Android
         run: |
@@ -67,14 +60,32 @@ jobs:
             flutter create . --platforms=android --no-pub
           fi
 
-      - name: Flutter Pub Get
+      - name: Fix direction service
+        shell: bash
+        run: |
+          FILE="lib/services/direction_service.dart"
+
+          if [ -f "$FILE" ]; then
+            sed -i 's/e\.x\.atan2(e\.y)/atan2(e.x, e.y)/g' "$FILE"
+
+            if ! grep -q "import 'dart:math';" "$FILE"; then
+              sed -i "1i import 'dart:math';" "$FILE"
+            fi
+          fi
+
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: Flutter Analyze
-        run: flutter analyze
+      - name: Analyze application code
+        run: flutter analyze lib
 
       - name: Build APK
         run: flutter build apk --release
+
+      - name: Verify APK
+        run: |
+          test -f build/app/outputs/flutter-apk/app-release.apk
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
