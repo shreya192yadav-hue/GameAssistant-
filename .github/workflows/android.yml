@@ -1,4 +1,4 @@
-name: Game Assistant Android Build
+name: Game Assistant APK Build
 
 on:
   push:
@@ -15,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -31,22 +30,32 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Extract Game Assistant project
+      - name: Find and extract Game Assistant ZIP
         shell: bash
         run: |
           set -e
 
-          test -f game_assistant_flutter_project.zip
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: Game Assistant ZIP not found."
+            exit 1
+          fi
+
+          echo "ZIP found: $ZIP_FILE"
 
           rm -rf extracted_project
           mkdir -p extracted_project
 
-          unzip -q game_assistant_flutter_project.zip -d extracted_project
+          unzip -q "$ZIP_FILE" -d extracted_project
 
-          PROJECT_DIR=$(find extracted_project -type f -name pubspec.yaml -print -quit | xargs dirname)
+          PROJECT_DIR=$(find extracted_project \
+            -type f \
+            -name pubspec.yaml \
+            -print -quit | xargs dirname)
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Flutter project not found."
+            echo "ERROR: pubspec.yaml not found inside ZIP."
             exit 1
           fi
 
@@ -57,107 +66,51 @@ jobs:
 
           rm -rf extracted_project
 
-      - name: Verify project
+      - name: Verify Flutter project
         shell: bash
         run: |
           set -e
 
           test -f pubspec.yaml
           test -f lib/main.dart
+          test -d android
 
-          echo "Flutter project detected successfully."
-
-      - name: Fix direction service
-        shell: bash
-        run: |
-          set -e
-
-          FILE="lib/services/direction_service.dart"
-
-          if [ -f "$FILE" ]; then
-            sed -i 's/e\.x\.atan2(e\.y)/atan2(e.x, e.y)/g' "$FILE"
-
-            if ! grep -q "import 'dart:math';" "$FILE"; then
-              sed -i "1i import 'dart:math';" "$FILE"
-            fi
-          fi
-
-      - name: Prepare Android project
-        shell: bash
-        run: |
-          set -e
-
-          if [ ! -d android ]; then
-            flutter create . --platforms=android --no-pub
-          fi
+          echo "Game Assistant project detected."
 
       - name: Prepare Gradle wrapper
         shell: bash
         run: |
           set -e
 
-          TEMP_DIR="$RUNNER_TEMP/flutter_android_template"
+          if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
 
-          rm -rf "$TEMP_DIR"
-          mkdir -p "$TEMP_DIR"
+            TEMP_DIR="$RUNNER_TEMP/flutter_android_template"
 
-          cd "$TEMP_DIR"
+            rm -rf "$TEMP_DIR"
+            mkdir -p "$TEMP_DIR"
 
-          flutter create . --platforms=android --no-pub
+            cd "$TEMP_DIR"
 
-          cd "$GITHUB_WORKSPACE"
+            flutter create . --platforms=android --no-pub
 
-          mkdir -p android/gradle/wrapper
+            cd "$GITHUB_WORKSPACE"
 
-          cp "$TEMP_DIR/android/gradlew" android/gradlew
-          cp "$TEMP_DIR/android/gradlew.bat" android/gradlew.bat
-          cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
-          cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.properties" android/gradle/wrapper/gradle-wrapper.properties
+            mkdir -p android/gradle/wrapper
 
-          chmod +x android/gradlew
+            cp "$TEMP_DIR/android/gradlew" android/gradlew
+            cp "$TEMP_DIR/android/gradlew.bat" android/gradlew.bat
+            cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
+            cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.properties" android/gradle/wrapper/gradle-wrapper.properties
+
+            chmod +x android/gradlew
+          fi
 
           echo "Gradle wrapper ready."
-
-      - name: Fix Flutter Gradle settings
-        shell: bash
-        run: |
-          set -e
-
-          FLUTTER_SDK_PATH="$(flutter sdk-path)"
-
-          echo "Flutter SDK:"
-          echo "$FLUTTER_SDK_PATH"
-
-          printf '%s\n' \
-            'pluginManagement {' \
-            "    includeBuild(\"$FLUTTER_SDK_PATH/packages/flutter_tools/gradle\")" \
-            '' \
-            '    repositories {' \
-            '        google()' \
-            '        mavenCentral()' \
-            '        gradlePluginPortal()' \
-            '    }' \
-            '}' \
-            '' \
-            'plugins {' \
-            '    id "dev.flutter.flutter-plugin-loader" version "1.0.0"' \
-            '    id "com.android.application" version "8.7.3" apply false' \
-            '    id "org.jetbrains.kotlin.android" version "2.1.0" apply false' \
-            '}' \
-            '' \
-            'include ":app"' \
-            > android/settings.gradle
-
-          echo "settings.gradle fixed."
 
       - name: Remove default Flutter test
         shell: bash
         run: |
-          set -e
-
           rm -f test/widget_test.dart
-
-          echo "Default widget test removed."
 
       - name: Get dependencies
         run: flutter pub get
@@ -165,7 +118,7 @@ jobs:
       - name: Analyze application
         run: flutter analyze lib
 
-      - name: Build APK
+      - name: Build Release APK
         run: flutter build apk --release
 
       - name: Verify APK
