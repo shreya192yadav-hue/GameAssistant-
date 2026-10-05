@@ -82,8 +82,6 @@ jobs:
             fi
           fi
 
-          echo "Direction service checked."
-
       - name: Prepare Android project
         shell: bash
         run: |
@@ -91,11 +89,9 @@ jobs:
 
           if [ ! -d android ]; then
             flutter create . --platforms=android --no-pub
-          else
-            echo "Android folder already exists."
           fi
 
-      - name: Prepare Flutter Gradle wrapper
+      - name: Prepare Gradle wrapper
         shell: bash
         run: |
           set -e
@@ -113,17 +109,10 @@ jobs:
 
           mkdir -p android/gradle/wrapper
 
-          cp "$TEMP_DIR/android/gradlew" \
-             android/gradlew
-
-          cp "$TEMP_DIR/android/gradlew.bat" \
-             android/gradlew.bat
-
-          cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.jar" \
-             android/gradle/wrapper/gradle-wrapper.jar
-
-          cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.properties" \
-             android/gradle/wrapper/gradle-wrapper.properties
+          cp "$TEMP_DIR/android/gradlew" android/gradlew
+          cp "$TEMP_DIR/android/gradlew.bat" android/gradlew.bat
+          cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
+          cp "$TEMP_DIR/android/gradle/wrapper/gradle-wrapper.properties" android/gradle/wrapper/gradle-wrapper.properties
 
           chmod +x android/gradlew
 
@@ -139,29 +128,25 @@ jobs:
           echo "Flutter SDK:"
           echo "$FLUTTER_SDK_PATH"
 
-          cat > android/settings.gradle <<'EOF'
-pluginManagement {
-    includeBuild("PLACEHOLDER_FLUTTER_SDK/packages/flutter_tools/gradle")
-
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-
-plugins {
-    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    id "com.android.application" version "8.7.3" apply false
-    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
-}
-
-include ":app"
-EOF
-
-          sed -i \
-            "s|PLACEHOLDER_FLUTTER_SDK|$FLUTTER_SDK_PATH|g" \
-            android/settings.gradle
+          printf '%s\n' \
+            'pluginManagement {' \
+            "    includeBuild(\"$FLUTTER_SDK_PATH/packages/flutter_tools/gradle\")" \
+            '' \
+            '    repositories {' \
+            '        google()' \
+            '        mavenCentral()' \
+            '        gradlePluginPortal()' \
+            '    }' \
+            '}' \
+            '' \
+            'plugins {' \
+            '    id "dev.flutter.flutter-plugin-loader" version "1.0.0"' \
+            '    id "com.android.application" version "8.7.3" apply false' \
+            '    id "org.jetbrains.kotlin.android" version "2.1.0" apply false' \
+            '}' \
+            '' \
+            'include ":app"' \
+            > android/settings.gradle
 
           echo "settings.gradle fixed."
 
